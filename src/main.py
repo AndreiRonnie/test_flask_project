@@ -22,7 +22,6 @@ proxy_user = "user27099"
 proxy_pass = "qf08ja"
 
 proxy_url = f"http://{proxy_user}:{proxy_pass}@{proxy_host}:{proxy_port}"
-
 os.environ['http_proxy'] = proxy_url
 os.environ['https_proxy'] = proxy_url
 
@@ -78,12 +77,12 @@ if not os.path.exists(CONVERSATIONS_DIR):
         logging.error(f"Ошибка при создании папки {CONVERSATIONS_DIR}: {e}")
 
 # ------------------------------------------------------
-# Фоновая задача: каждые 10 секунд логируем, что бот "жив"
+# Фоновая задача: каждые N секунд логируем, что бот "жив"
 # ------------------------------------------------------
 def periodic_logger():
     while True:
-        logging.info("Periodic log message: the bot6 is running")
-        time.sleep(10)
+        logging.info("Periodic log message: the bot7 is running")
+        time.sleep(60)  # каждые 60 секунд
 
 thread = threading.Thread(target=periodic_logger, daemon=True)
 thread.start()
@@ -101,15 +100,28 @@ def get_conversation_file_path(conversation_id) -> str:
     return os.path.join(CONVERSATIONS_DIR, f"conversation_{safe_id}.json")
 
 def get_default_system_history() -> list:
+    """
+    Обновлённый текст системного сообщения.
+    """
     system_message = {
         "role": "system",
         "content": (
             "Ты — ассистент, который помогает студентам (платно) и старается узнать "
-            "все детали об их заказе: тип работы (курсовая, диплом, реферат и т.д.), "
+            "детали об их заказе: тип работы (курсовая, диплом, реферат и т.д.), "
             "срок выполнения, методические материалы, предмет (или специальность), "
             "тему работы, проверку на антиплагиат и требуемый процент оригинальности. "
+            "Другие детали уточнять не нужно. "
             "Будь вежливым, дружелюбным, отвечай кратко и по делу, задавай вопросы, "
-            "чтобы собрать полную информацию о заказе."
+            "чтобы собрать информацию о заказе. "
+            "После сбора этой информации о заказе, ты должен оценить стоимость помощи "
+            "с работой студента фразой: «За X рублей отличный автор готов помочь "
+            "выполнить вашу работу в указанные сроки и по указанным требованиям. "
+            "Что скажете?» "
+            "X — это стоимость, зависящая от типа работы и предмета: "
+            "Реферат (гуманитарные) ~ 1200₽, курсовая (гуманитарные) ~ 2500₽, "
+            "дипломная (гуманитарные) ~ 9000₽; "
+            "по экономическим дисциплинам цена в 1.5 раза выше, "
+            "по техническим (точным наукам) — в 2 раза выше."
         )
     }
     return [system_message]
@@ -158,8 +170,9 @@ def get_chatgpt_response(user_text: str, conversation_id) -> str:
         history.append({"role": "user", "content": user_text})
         logging.info(f"[get_chatgpt_response] Добавлено сообщение пользователя: {user_text}")
 
+        # Здесь указываем модель (gpt-4o-mini и т.д.):
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o-mini",
             messages=history,
             temperature=0.7,
         )
@@ -191,10 +204,9 @@ def talkme_webhook():
     # Из JSON берем searchId или token
     search_id = data.get("client", {}).get("searchId")
     if not search_id:
-        # Если нет searchId, берём token или 'unknown'
         search_id = data.get("token", "unknown")
     else:
-        # Если searchId был числом, превращаем в строку
+        # Если searchId был числом, делаем строку
         search_id = str(search_id)
 
     incoming_text = data.get("message", {}).get("text", "")
@@ -202,7 +214,7 @@ def talkme_webhook():
 
     logging.info(f"[talkme_webhook] searchId={search_id}, text={incoming_text}")
 
-    # Формируем ответ
+    # Формируем ответ через get_chatgpt_response
     reply_text = get_chatgpt_response(incoming_text, search_id)
     logging.info(f"[talkme_webhook] Ответ для Talk-Me: {reply_text}")
 
@@ -239,3 +251,4 @@ if __name__ == '__main__':
         app.run(host='0.0.0.0', port=5000, debug=True)
     except Exception as e:
         logging.error(f"Ошибка при запуске приложения: {e}")
+
