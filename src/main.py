@@ -82,7 +82,7 @@ if not os.path.exists(CONVERSATIONS_DIR):
 # ------------------------------------------------------
 def periodic_logger():
     while True:
-        logging.info("Periodic log message: the bot4 is running")
+        logging.info("Periodic log message: the bot5 is running")
         time.sleep(10)
 
 thread = threading.Thread(target=periodic_logger, daemon=True)
