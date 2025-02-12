@@ -198,11 +198,11 @@ def get_chatgpt_response(user_text: str, conversation_id) -> str:
         history.append({"role": "user", "content": user_text})
         logging.info(f"[get_chatgpt_response] Добавлено сообщение пользователя: {user_text}")
 
-        # Здесь указываем модель (gpt-4o-mini и т.д.):
+        # Здесь указываем модель (gpt-o3-mini и т.д.):
         response = openai.ChatCompletion.create(
-            model="gpt-4o-mini",
+            model="o3-mini",
             messages=history,
-            temperature=0.4,
+            temperature=0.5,
         )
         assistant_answer = response["choices"][0]["message"]["content"]
         logging.debug(f"[get_chatgpt_response] Ответ ChatGPT: {assistant_answer}")
