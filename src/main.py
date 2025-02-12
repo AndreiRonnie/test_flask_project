@@ -81,7 +81,7 @@ if not os.path.exists(CONVERSATIONS_DIR):
 # ------------------------------------------------------
 def periodic_logger():
     while True:
-        logging.info("Periodic log message: the bot8 is running")
+        logging.info("Periodic log message: the bot9 is running")
         time.sleep(60)  # каждые 60 секунд
 
 thread = threading.Thread(target=periodic_logger, daemon=True)
@@ -202,7 +202,7 @@ def get_chatgpt_response(user_text: str, conversation_id) -> str:
         response = openai.ChatCompletion.create(
             model="o1-mini",
             messages=history,
-            temperature=0.4,
+            temperature=0.5,
         )
         assistant_answer = response["choices"][0]["message"]["content"]
         logging.debug(f"[get_chatgpt_response] Ответ ChatGPT: {assistant_answer}")
