@@ -200,9 +200,9 @@ def get_chatgpt_response(user_text: str, conversation_id) -> str:
 
         # Здесь указываем модель (gpt-o3-mini и т.д.):
         response = openai.ChatCompletion.create(
-            model="o3-mini",
+            model="gpt-o3-mini",
             messages=history,
-            temperature=0.5,
+            temperature=0.4,
         )
         assistant_answer = response["choices"][0]["message"]["content"]
         logging.debug(f"[get_chatgpt_response] Ответ ChatGPT: {assistant_answer}")
