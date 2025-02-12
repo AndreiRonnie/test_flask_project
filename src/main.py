@@ -11,7 +11,7 @@ try:
     import openai
 except ImportError as e:
     print(f"Не удалось импортировать openai: {e}")
-    openai = None  # Если не импортирован, работаем в режиме заглушки
+    openai = None  # Можем установить в None, чтобы не ломать дальнейший код
 
 # ------------------------------------------------------
 # Настройка прокси (раскомментируйте/уберите при необходимости)
@@ -28,7 +28,7 @@ os.environ['https_proxy'] = proxy_url
 # ------------------------------------------------------
 # Логирование в файл (DEBUG)
 # ------------------------------------------------------
-BASE_DIR = os.getcwd()  # Рабочая директория (обычно уWSGI: /home/uXXXX/test.studentshelper.ru/www)
+BASE_DIR = os.getcwd()  # Рабочая директория (uWSGI обычно запускается из /home/uXXXX/...)
 LOGFILE_PATH = os.path.join(BASE_DIR, 'bot2.log')
 
 logging.basicConfig(
@@ -80,12 +80,11 @@ if not os.path.exists(CONVERSATIONS_DIR):
 # ------------------------------------------------------
 pending_updates = {}  
 # Структура: { conversation_id: { "messages": [ { "type": "text"/"file", "content": <str> }, ... ],
-#                                   "timer": <Timer object>, "has_file": bool } }
+#                                   "timer": <Timer object>, "has_file": bool, "talkme_token": <str> } }
 TEXT_DELAY = 30    # 30 секунд для чисто текстовых сообщений
 FILE_DELAY = 120   # 120 секунд (2 мин) если хотя бы один файл
 
 def schedule_flush(conv_id, delay):
-    """Отменяет предыдущий таймер (если есть) и ставит новый на delay секунд."""
     global pending_updates
     data = pending_updates.get(conv_id)
     if not data:
@@ -98,13 +97,12 @@ def schedule_flush(conv_id, delay):
     new_timer.start()
 
 def flush_pending(conv_id):
-    """Когда таймер срабатывает, объединяем накопленные сообщения и отправляем ответ."""
     global pending_updates
     data = pending_updates.get(conv_id)
     if not data:
         return
+
     messages = data["messages"]
-    # Объединяем все текстовые сообщения в один блок
     text_parts = []
     file_count = 0
     for msg in messages:
@@ -112,29 +110,24 @@ def flush_pending(conv_id):
             text_parts.append(msg["content"])
         elif msg["type"] == "file":
             file_count += 1
+
     combined_text = ""
     if file_count > 0:
-        combined_text += f"Пользователь прислал {file_count} файл(а). Предположительно, это задания или методические материалы.\n"
+        combined_text += f"Пользователь прислал {file_count} файл(а). Вероятно, это задания или методические материалы.\n"
     if text_parts:
         combined_text += "\n".join(text_parts)
     if not combined_text.strip():
         combined_text = "(Пустое сообщение)"
 
-    # Вызываем ChatGPT (или заглушку)
+    logging.info(f"[flush_pending] Итоговый объединённый текст для conv_id {conv_id}: {combined_text}")
+
     reply_text = get_chatgpt_response(combined_text, conv_id)
-    logging.info(f"[flush_pending] Объединённый запрос для ChatGPT: {combined_text}")
-    logging.info(f"[flush_pending] Получен итоговый ответ: {reply_text}")
+    logging.info(f"[flush_pending] Итоговый ответ для conv_id {conv_id}: {reply_text}")
 
-    # Отправляем ответ в Talk-Me (используем talkme_token, если он хранится)
-    # Здесь можно реализовать вызов talkme_send_reply(), например:
-    pending_info = data.get("talkme_token", "")
-    talkme_send_reply(conv_id, reply_text, pending_info)
-
-    # Очищаем буфер для conv_id
+    talkme_send_reply(conv_id, reply_text, data["talkme_token"])
     del pending_updates[conv_id]
 
 def talkme_send_reply(conv_id, reply_text, talkme_token):
-    """Отправляет ответ обратно в Talk-Me через их API."""
     url = "https://lcab.talk-me.ru/json/v1.0/customBot/send"
     body = {"content": {"text": reply_text}}
     headers = {
@@ -143,12 +136,12 @@ def talkme_send_reply(conv_id, reply_text, talkme_token):
     }
     try:
         resp = requests.post(url, json=body, headers=headers)
-        logging.info(f"[talkme_send_reply] Ответ Talk-Me: {resp.status_code} {resp.text}")
+        logging.info(f"[talkme_send_reply] conv_id={conv_id} Ответ Talk-Me: {resp.status_code} {resp.text}")
     except Exception as e:
-        logging.error(f"[talkme_send_reply] Ошибка при отправке ответа: {e}")
+        logging.error(f"[talkme_send_reply] conv_id={conv_id} Ошибка при отправке ответа: {e}")
 
 # ------------------------------------------------------
-# Функции для хранения/загрузки диалога (без изменений)
+# Функции для хранения/загрузки диалога
 # ------------------------------------------------------
 def get_conversation_file_path(conversation_id) -> str:
     conversation_str = str(conversation_id)
@@ -252,7 +245,6 @@ def get_chatgpt_response(user_text: str, conversation_id) -> str:
         history.append({"role": "user", "content": user_text})
         logging.info(f"[get_chatgpt_response] Добавлено сообщение пользователя: {user_text}")
 
-        # Здесь указываем модель (например, "gpt-4o")
         response = openai.ChatCompletion.create(
             model="gpt-4o",
             messages=history,
@@ -261,7 +253,6 @@ def get_chatgpt_response(user_text: str, conversation_id) -> str:
         assistant_answer = response["choices"][0]["message"]["content"]
         logging.debug(f"[get_chatgpt_response] Ответ ChatGPT: {assistant_answer}")
 
-        # Добавляем ответ ассистента в историю
         history.append({"role": "assistant", "content": assistant_answer})
         save_history(conversation_id, history)
 
@@ -290,102 +281,35 @@ def talkme_webhook():
     else:
         conv_id = str(conv_id)
 
-    # Определяем, если пришёл файл — например, проверяем наличие ключа "file"
-    is_file = True if data.get("file") else False
+    # Определяем, если пришёл файл (либо есть ключ "file", либо текст содержит ссылку с "download.me-talk.ru")
+    is_file = False
+    if data.get("file"):
+        is_file = True
+    elif "download.me-talk.ru" in data.get("message", {}).get("text", ""):
+        is_file = True
 
-    # Извлекаем текст (если есть)
     incoming_text = data.get("message", {}).get("text", "")
     talkme_token = data.get("token", "")
 
     logging.info(f"[talkme_webhook] conv_id={conv_id}, text={incoming_text}, is_file={is_file}")
 
-    # Если для этого conv_id ещё нет буфера, создаём его
+    # Если для conv_id еще нет буфера, создаем его
     if conv_id not in pending_updates:
         pending_updates[conv_id] = {"messages": [], "timer": None, "has_file": False, "talkme_token": talkme_token}
 
-    # Добавляем входящее сообщение в буфер
+    # Добавляем входящее сообщение в буфер: если это файл, то добавляем специальное сообщение
     if is_file:
-        pending_updates[conv_id]["messages"].append({"type": "file", "content": "(Файл получен)"})
+        pending_updates[conv_id]["messages"].append({"type": "file", "content": incoming_text})
         pending_updates[conv_id]["has_file"] = True
     if incoming_text.strip():
         pending_updates[conv_id]["messages"].append({"type": "text", "content": incoming_text})
 
-    # Определяем задержку: если хотя бы один файл – 120 сек, иначе 30 сек
+    # Определяем задержку: если есть файл, ставим 120 сек, иначе 30 сек
     delay = FILE_DELAY if pending_updates[conv_id]["has_file"] else TEXT_DELAY
     schedule_flush(conv_id, delay)
 
     logging.info(f"[talkme_webhook] Сообщения накоплены для conv_id {conv_id}. Таймер установлен на {delay} сек.")
     return jsonify({"status": "ok"}), 200
-
-# ------------------------------------------------------
-# Функция для сброса накопленных сообщений и отправки ответа
-# ------------------------------------------------------
-def flush_pending(conv_id):
-    global pending_updates
-    data = pending_updates.get(conv_id)
-    if not data:
-        return
-
-    messages = data["messages"]
-    # Объединяем все текстовые сообщения в один блок
-    text_parts = []
-    file_count = 0
-    for msg in messages:
-        if msg["type"] == "text":
-            text_parts.append(msg["content"])
-        elif msg["type"] == "file":
-            file_count += 1
-
-    combined_text = ""
-    if file_count > 0:
-        combined_text += f"Пользователь прислал {file_count} файл(а). Вероятно, это задания или методические материалы.\n"
-    if text_parts:
-        combined_text += "\n".join(text_parts)
-    if not combined_text.strip():
-        combined_text = "(Пустое сообщение)"
-
-    logging.info(f"[flush_pending] Итоговый объединённый текст для conv_id {conv_id}: {combined_text}")
-
-    # Получаем итоговый ответ от ChatGPT (или заглушки)
-    reply_text = get_chatgpt_response(combined_text, conv_id)
-    logging.info(f"[flush_pending] Итоговый ответ для conv_id {conv_id}: {reply_text}")
-
-    # Отправляем ответ в Talk-Me
-    talkme_send_reply(conv_id, reply_text, data["talkme_token"])
-
-    # Удаляем накопленные данные для этого conv_id
-    del pending_updates[conv_id]
-
-# ------------------------------------------------------
-# Функция для планирования сброса (таймера)
-# ------------------------------------------------------
-def schedule_flush(conv_id, delay):
-    global pending_updates
-    data = pending_updates.get(conv_id)
-    if not data:
-        return
-    old_timer = data.get("timer")
-    if old_timer:
-        old_timer.cancel()
-    new_timer = threading.Timer(delay, flush_pending, args=[conv_id])
-    data["timer"] = new_timer
-    new_timer.start()
-
-# ------------------------------------------------------
-# Функция отправки ответа в Talk-Me
-# ------------------------------------------------------
-def talkme_send_reply(conv_id, reply_text, talkme_token):
-    url = "https://lcab.talk-me.ru/json/v1.0/customBot/send"
-    body = {"content": {"text": reply_text}}
-    headers = {
-        "X-Token": talkme_token,
-        "Content-Type": "application/json"
-    }
-    try:
-        resp = requests.post(url, json=body, headers=headers)
-        logging.info(f"[talkme_send_reply] conv_id={conv_id} Ответ Talk-Me: {resp.status_code} {resp.text}")
-    except Exception as e:
-        logging.error(f"[talkme_send_reply] conv_id={conv_id} Ошибка при отправке ответа: {e}")
 
 # ------------------------------------------------------
 # Корневой маршрут
@@ -404,5 +328,6 @@ if __name__ == '__main__':
         app.run(host='0.0.0.0', port=5000, debug=True)
     except Exception as e:
         logging.error(f"Ошибка при запуске приложения: {e}")
+
 
 
