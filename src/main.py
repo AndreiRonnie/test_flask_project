@@ -78,11 +78,11 @@ if not os.path.exists(CONVERSATIONS_DIR):
 # ------------------------------------------------------
 # Глобальный словарь для накопления входящих сообщений по conversation_id
 # ------------------------------------------------------
-pending_updates = {}  
+pending_updates = {}
 # Структура: { conversation_id: { "messages": [ { "type": "text"/"file", "content": <str> }, ... ],
 #                                   "timer": <Timer object>, "has_file": bool, "talkme_token": <str> } }
-TEXT_DELAY = 30    # 30 секунд для текстовых сообщений
-FILE_DELAY = 120   # 120 секунд (2 мин) если хотя бы один файл
+TEXT_DELAY = 3    # 3 секунд для текстовых сообщений
+FILE_DELAY = 12   # 12 секунд (2 мин) если хотя бы один файл
 
 def schedule_flush(conv_id, delay):
     global pending_updates
@@ -186,6 +186,7 @@ def get_default_system_history() -> list:
             "но она не должна отличаться более чем в 2 раза от рекомендованной минимальной. "
             "Нужно обязательно называть «психологически приятную» сумму (например, 990₽ вместо 1000₽).\n"
             "Если студент хочет срок меньше дня или онлайн-решение, сообщи, что помочь не можешь.\n\n"
+			
         )
     }
     return [system_message]
@@ -286,13 +287,13 @@ def talkme_webhook():
     if conv_id not in pending_updates:
         pending_updates[conv_id] = {"messages": [], "timer": None, "has_file": False, "talkme_token": talkme_token}
 
-    # Если пришёл файл, заменяем текст на фиксированное сообщение "Файл отправлен"
+    # Если пришёл файл, вместо оригинального текста добавляем фиксированное сообщение
     if is_file:
-        pending_updates[conv_id]["messages"].append({"type": "file", "content": "Файл отправлен"})
+        pending_updates[conv_id]["messages"].append({"type": "file", "content": "Файл был отправлен. Позже его посмотрит живой оператор."})
         pending_updates[conv_id]["has_file"] = True
-    # Если пришло текстовое сообщение, добавляем его
-    if incoming_text.strip():
-        pending_updates[conv_id]["messages"].append({"type": "text", "content": incoming_text})
+    else:
+        if incoming_text.strip():
+            pending_updates[conv_id]["messages"].append({"type": "text", "content": incoming_text})
 
     # Задаём задержку: если есть файл – 120 сек, иначе – 30 сек
     delay = FILE_DELAY if pending_updates[conv_id]["has_file"] else TEXT_DELAY
@@ -318,7 +319,3 @@ if __name__ == '__main__':
         app.run(host='0.0.0.0', port=5000, debug=True)
     except Exception as e:
         logging.error(f"Ошибка при запуске приложения: {e}")
-
-
-
-
